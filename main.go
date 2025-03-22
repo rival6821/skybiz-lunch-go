@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +28,9 @@ type ItemsData struct {
 type MediaData struct {
 	Type      string `json:"type"`
 	Large_url string `json:"large_url"`
+}
+
+type CrawlingData struct {
 }
 
 func checkWorkDone() (bool, error) {
@@ -72,7 +76,6 @@ func getImage(key string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// fmt.Println(string(body))
 
 	var data PostsData
 	err = json.Unmarshal(body, &data)
@@ -86,7 +89,6 @@ func getImage(key string) (string, error) {
 
 	now := time.Now()
 	todayMidnight := time.Date(now.Year(), now.Month(), now.Day()-1, 0, 0, 0, 0, now.Location()).Unix() * 1000
-	// todayMidnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).Unix() * 1000
 
 	// 오늘 작성된 포스트만 필터링
 	var todayMedia []MediaData
@@ -114,17 +116,19 @@ func getImage(key string) (string, error) {
 	return "", errors.New("no image found")
 }
 
-func fetchAllImages(keys []string) []string {
+func fetchAllImages(keys map[string]string) map[string]string {
 	var wg sync.WaitGroup
 
-	var urls []string
-	for _, key := range keys {
+	urls := make(map[string]string)
+	for key, name := range keys {
 		wg.Add(1)
 		go func(key string) {
 			defer wg.Done()
 			img, err := getImage(key)
 			fmt.Println(img, err)
-			urls = append(urls, img)
+			if (err == nil) && (img != "") {
+				urls[name] = img
+			}
 		}(key)
 	}
 
@@ -132,13 +136,47 @@ func fetchAllImages(keys []string) []string {
 	return urls
 }
 
+func uploadImage(urls map[string]string) error {
+	body, err := json.Marshal(urls)
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+	resp, err := http.Post("https://lunch.muz.kr", "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		fmt.Println("status code is not 200")
+		return err
+	}
+	return nil
+}
+
 func main() {
 	// 작업 필요 유무 체크
 	check, err := checkWorkDone()
 	fmt.Println(check, err)
 
-	keys := []string{"_FxbaQC", "_CiVis", "_vKxgdn"}
+	searchData := map[string]string{
+		"_FxbaQC": "uncle",  // 삼촌밥차
+		"_CiVis":  "mouse",  // 슈마우스
+		"_vKxgdn": "jundam", // 정담
+	}
 
-	urls := fetchAllImages(keys)
-	fmt.Println(urls)
+	urls := fetchAllImages(searchData)
+
+	if len(urls) != 0 {
+		fmt.Println(urls)
+		err := uploadImage(urls)
+		if err != nil {
+			fmt.Println(err)
+		} else {
+			fmt.Println("Image uploaded")
+		}
+	} else {
+		fmt.Println("No image found")
+	}
 }
