@@ -71,7 +71,8 @@ func checkWorkDone(searchTarget map[string]string) (bool, error) {
 	}
 	// searchData 의 value 값이 모두 들어 있는지
 	for name, _ := range searchTarget {
-		if _, ok := data.Result[name]; !ok {
+		url, exists := data.Result[name]
+		if !exists || url == "" {
 			return false, nil
 		}
 	}
@@ -173,8 +174,7 @@ func uploadImage(data map[string]string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		log.Error().Msg("status code is not 200")
-		return err
+		return errors.New("status code is not 200")
 	}
 	return nil
 }
