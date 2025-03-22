@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,18 @@ import (
 
 	"github.com/rs/zerolog/log"
 )
+
+// 전역 HTTP 클라이언트 재사용
+var client = &http.Client{
+	Timeout: 10 * time.Second,
+	Transport: &http.Transport{
+		MaxIdleConns:        100,
+		IdleConnTimeout:     90 * time.Second,
+		DisableCompression:  false,
+		MaxConnsPerHost:     10,
+		MaxIdleConnsPerHost: 10,
+	},
+}
 
 type CheckResponseData struct {
 	Result map[string]string `json:"result"`
@@ -65,10 +78,14 @@ func checkWorkDone(searchTarget map[string]string) (bool, error) {
 	return true, nil
 }
 
-func getImage(key string) (string, error) {
+func getImage(ctx context.Context, key string) (string, error) {
 	url := fmt.Sprintf("https://pf.kakao.com/rocket-web/web/profiles/%s/posts", key)
 	log.Info().Str("url", url).Msg("Fetching image")
-	res, err := http.Get(url)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	res, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -120,23 +137,25 @@ func getImage(key string) (string, error) {
 	return "", errors.New("no image found")
 }
 
-func fetchAllImages(searchTarget map[string]string) map[string]string {
+func fetchAllImages(ctx context.Context, searchTarget map[string]string) map[string]string {
 	var wg sync.WaitGroup
+	var mu sync.Mutex // map 쓰기 동기화를 위한 뮤텍스
 
-	data := make(map[string]string)
+	data := make(map[string]string, len(searchTarget))
 	for name, key := range searchTarget {
 		wg.Add(1)
-		go func(key string) {
+		go func(name, key string) {
 			defer wg.Done()
-			img, err := getImage(key)
-			if (err == nil) && (img != "") {
+			img, err := getImage(ctx, key)
+			mu.Lock()
+			defer mu.Unlock()
+			if err == nil && img != "" {
 				data[name] = img
 			} else {
 				data[name] = ""
 			}
-		}(key)
+		}(name, key)
 	}
-
 	wg.Wait()
 	return data
 }
@@ -167,18 +186,18 @@ func main() {
 		"jundam": "_vKxgdn", // 정담
 	}
 
+	// 예시: 전체 함수에 컨텍스트 추가
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
 	// 작업 필요 유무 체크
-	check, err := checkWorkDone(searchTarget)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to check work done")
-		return
-	}
+	check, _ := checkWorkDone(searchTarget)
 	if check {
 		log.Info().Msg("Work done")
 		return
 	}
 
-	data := fetchAllImages(searchTarget)
+	data := fetchAllImages(ctx, searchTarget)
 
 	if len(data) != 0 {
 		for key, value := range data {
