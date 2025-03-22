@@ -199,10 +199,19 @@ func main() {
 
 	data := fetchAllImages(ctx, searchTarget)
 
-	if len(data) != 0 {
-		for key, value := range data {
-			log.Info().Str(key, value).Msg("Upload image")
+	if len(data) == 0 {
+		log.Error().Msg("No image found")
+		return
+	}
+
+	checkData := false
+	for key, value := range data {
+		log.Info().Str(key, value).Msg("Upload image")
+		if value != "" {
+			checkData = true
 		}
+	}
+	if checkData {
 		err := uploadImage(data)
 		if err != nil {
 			log.Error().Err(err).Msg("Image upload failed")
