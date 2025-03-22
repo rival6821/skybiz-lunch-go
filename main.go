@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 type CheckResponseData struct {
-	Result string `json:"result"`
+	Result map[string]string `json:"result"`
 }
 
 type PostsData struct {
@@ -33,7 +35,7 @@ type MediaData struct {
 type CrawlingData struct {
 }
 
-func checkWorkDone() (bool, error) {
+func checkWorkDone(searchTarget map[string]string) (bool, error) {
 	// 작업 완료 여부 체크
 	res, err := http.Get("https://lunch.muz.kr?check=true")
 	if err != nil {
@@ -54,16 +56,18 @@ func checkWorkDone() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-
-	if data.Result != "" {
-		return true, nil
+	// searchData 의 value 값이 모두 들어 있는지
+	for name, _ := range searchTarget {
+		if _, ok := data.Result[name]; !ok {
+			return false, nil
+		}
 	}
-	return false, nil
+	return true, nil
 }
 
 func getImage(key string) (string, error) {
 	url := fmt.Sprintf("https://pf.kakao.com/rocket-web/web/profiles/%s/posts", key)
-	fmt.Printf("Fetching image from %s\n", url)
+	log.Info().Str("url", url).Msg("Fetching image")
 	res, err := http.Get(url)
 	if err != nil {
 		return "", err
@@ -88,7 +92,7 @@ func getImage(key string) (string, error) {
 	}
 
 	now := time.Now()
-	todayMidnight := time.Date(now.Year(), now.Month(), now.Day()-1, 0, 0, 0, 0, now.Location()).Unix() * 1000
+	todayMidnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).Unix() * 1000
 
 	// 오늘 작성된 포스트만 필터링
 	var todayMedia []MediaData
@@ -116,67 +120,77 @@ func getImage(key string) (string, error) {
 	return "", errors.New("no image found")
 }
 
-func fetchAllImages(keys map[string]string) map[string]string {
+func fetchAllImages(searchTarget map[string]string) map[string]string {
 	var wg sync.WaitGroup
 
-	urls := make(map[string]string)
-	for key, name := range keys {
+	data := make(map[string]string)
+	for name, key := range searchTarget {
 		wg.Add(1)
 		go func(key string) {
 			defer wg.Done()
 			img, err := getImage(key)
-			fmt.Println(img, err)
 			if (err == nil) && (img != "") {
-				urls[name] = img
+				data[name] = img
+			} else {
+				data[name] = ""
 			}
 		}(key)
 	}
 
 	wg.Wait()
-	return urls
+	return data
 }
 
-func uploadImage(urls map[string]string) error {
-	body, err := json.Marshal(urls)
+func uploadImage(data map[string]string) error {
+	body, err := json.Marshal(data)
 	if err != nil {
-		fmt.Println(err)
+		log.Error().Err(err).Msg("Failed to marshal data")
 		return err
 	}
 	resp, err := http.Post("https://lunch.muz.kr", "application/json", bytes.NewBuffer(body))
 	if err != nil {
-		fmt.Println(err)
+		log.Error().Err(err).Msg("Failed to upload image")
 		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		fmt.Println("status code is not 200")
+		log.Error().Msg("status code is not 200")
 		return err
 	}
 	return nil
 }
 
 func main() {
-	// 작업 필요 유무 체크
-	check, err := checkWorkDone()
-	fmt.Println(check, err)
-
-	searchData := map[string]string{
-		"_FxbaQC": "uncle",  // 삼촌밥차
-		"_CiVis":  "mouse",  // 슈마우스
-		"_vKxgdn": "jundam", // 정담
+	searchTarget := map[string]string{
+		"uncle":  "_FxbaQC", // 삼촌밥차
+		"mouse":  "_CiVis",  // 슈마우스
+		"jundam": "_vKxgdn", // 정담
 	}
 
-	urls := fetchAllImages(searchData)
+	// 작업 필요 유무 체크
+	check, err := checkWorkDone(searchTarget)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to check work done")
+		return
+	}
+	if check {
+		log.Info().Msg("Work done")
+		return
+	}
 
-	if len(urls) != 0 {
-		fmt.Println(urls)
-		err := uploadImage(urls)
+	data := fetchAllImages(searchTarget)
+
+	if len(data) != 0 {
+		for key, value := range data {
+			log.Info().Str(key, value).Msg("Upload image")
+		}
+		err := uploadImage(data)
 		if err != nil {
-			fmt.Println(err)
+			log.Error().Err(err).Msg("Image upload failed")
 		} else {
-			fmt.Println("Image uploaded")
+			log.Info().Msg("Image uploaded")
 		}
 	} else {
-		fmt.Println("No image found")
+		log.Error().Msg("No image found")
 	}
 }
