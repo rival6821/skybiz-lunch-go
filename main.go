@@ -45,9 +45,6 @@ type MediaData struct {
 	Large_url string `json:"large_url"`
 }
 
-type CrawlingData struct {
-}
-
 func checkWorkDone(searchTarget map[string]string) (bool, error) {
 	// 작업 완료 여부 체크
 	res, err := http.Get("https://lunch.muz.kr?check=true")
@@ -109,8 +106,13 @@ func getImage(ctx context.Context, key string) (string, error) {
 		return "", errors.New("no items found")
 	}
 
-	now := time.Now()
-	todayMidnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).Unix() * 1000
+	// 서울 시간 기준으로
+	loc, err := time.LoadLocation("Asia/Seoul")
+	if err != nil {
+		return "", err
+	}
+	now := time.Now().In(loc)
+	todayMidnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).Unix() * 1000
 
 	// 오늘 작성된 포스트만 필터링
 	var todayMedia []MediaData
