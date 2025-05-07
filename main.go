@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -44,6 +45,8 @@ type MediaData struct {
 	Type      string `json:"type"`
 	Large_url string `json:"large_url"`
 }
+
+var loc, _ = time.LoadLocation("Asia/Seoul")
 
 func checkWorkDone(searchTarget map[string]string) (bool, error) {
 	// 작업 완료 여부 체크
@@ -106,11 +109,6 @@ func getImage(ctx context.Context, key string) (string, error) {
 		return "", errors.New("no items found")
 	}
 
-	// 서울 시간 기준으로
-	loc, err := time.LoadLocation("Asia/Seoul")
-	if err != nil {
-		return "", err
-	}
 	now := time.Now().In(loc)
 	todayMidnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).Unix() * 1000
 
@@ -182,6 +180,10 @@ func uploadImage(data map[string]string) error {
 }
 
 func main() {
+	zerolog.TimestampFunc = func() time.Time {
+		return time.Now().In(loc)
+	}
+
 	searchTarget := map[string]string{
 		"uncle":  "_FxbaQC", // 삼촌밥차
 		"mouse":  "_CiVis",  // 슈마우스
